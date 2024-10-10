@@ -3,52 +3,42 @@ import paramiko
 import ipaddress
 import getpass
 
-# Function to SSH into the device and run multiple commands
+# Function to SSH into the device and run multiple commands in a single session
 def ssh_run_commands(hostname, commands, username, password):
-    """
-    Connects to the device and runs multiple commands in a single SSH session.
-    Returns a dictionary with command outputs.
-    """
     results = {}
     
     try:
         ssh = paramiko.SSHClient()
         ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        ssh.connect(hostname, username=username, password=password)
+        ssh.connect(hostname, username=username, password=password, allow_agent=False, look_for_keys=False)
 
+        # Open a new SSH session and run each command
         for command_label, command in commands.items():
             stdin, stdout, stderr = ssh.exec_command(command)
             output = stdout.read().decode()
             results[command_label] = output
-        
+            
         ssh.close()
+    except paramiko.SSHException as e:
+        print(f"SSHException: {e}")
+        return None
     except Exception as e:
-        print(f"Error connecting to {hostname}: {e}")
+        print(f"Error: {e}")
         return None
 
     return results
 
 # Function to check if the VLAN interface is UP based on the output
 def is_vlan_up(output):
-    """
-    Analyzes the output of 'show interface vlan' command to check if the VLAN is up.
-    """
     return 'line protocol is up' in output.lower()
 
 # Function to check if there are any ARP/MAC addresses (clients) on the VLAN while ignoring the first three IPs
 def check_arp_mac(output, subnet):
-    """
-    Analyzes the output of 'show ip arp vlan' command to check for connected clients
-    excluding the first three IPs of the subnet.
-    """
-    # Parse the first three IPs in the subnet (management IPs to ignore)
     net = ipaddress.ip_network(subnet)
     first_three_ips = {str(ip) for ip in list(net.hosts())[:3]}
 
-    # Check ARP/MAC table to see if there are any clients connected other than the first three IPs
     arp_entries = [line.split()[1] for line in output.splitlines() if len(line.split()) > 1]
 
-    # Return True if there are ARP entries found excluding the first three IPs
     for ip in arp_entries:
         if ip not in first_three_ips:
             return True  # Clients are connected
@@ -80,13 +70,9 @@ def process_csv(input_file, output_file, username, password):
                 print(f"Skipping {hostname} due to connection issues.")
                 continue
 
-            # Check if the VLAN interface is UP
             vlan_up = is_vlan_up(command_outputs['vlan_status'])
-
-            # Check if there are any ARP/MAC addresses (clients connected to the VLAN)
             clients_connected = check_arp_mac(command_outputs['arp_table'], subnet)
 
-            # Save the result
             results.append({
                 'Hostname': hostname,
                 'VLAN ID': vlan_id,
@@ -94,7 +80,6 @@ def process_csv(input_file, output_file, username, password):
                 'Clients Connected': clients_connected
             })
 
-    # Write the results to an output CSV
     write_to_csv(output_file, results)
 
 # Function to write the results to a CSV file
@@ -113,7 +98,6 @@ if __name__ == '__main__':
     input_file = 'input.csv'   # Input CSV file path
     output_file = 'output.csv' # Output CSV file path
 
-    # Get username and password from the user at runtime
     username = input("Enter your SSH username: ")
     password = getpass.getpass("Enter your SSH password: ")
 
