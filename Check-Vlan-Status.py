@@ -7,19 +7,26 @@ from collections import defaultdict
 # Function to check for clients in the ARP output while ignoring the first three IPs
 def check_clients(arp_output, subnet):
     if arp_output is None:
-        return False  # If there's no output, we can't have any clients
+        return False  # If there's no output, assume no clients
 
+    # Get the first three IPs in the subnet
     net = ipaddress.ip_network(subnet)
-    first_three_ips = {str(ip) for ip in list(net.hosts())[:3]}
+    first_three_ips = {str(ip) for ip in list(net.hosts())[:3]}  # Create a set of the first 3 IPs
 
+    # Flag to track if there are other clients
     clients_connected = False
+
+    # Process each line of the ARP output
     for line in arp_output.splitlines():
         if line.strip() == "":
             continue  # Skip empty lines
+
         parts = line.split()
-        if len(parts) >= 3:  # Assuming the output has at least IP and MAC addresses
-            ip = parts[1]  # Adjust this index based on actual output format
-            if ip not in first_three_ips:
+        if len(parts) >= 2:  # Ensure there are at least 2 columns, to get the IP address
+            ip_address = parts[1]  # The Address column is the second column
+
+            # If the IP is not one of the first three, we have a client connected
+            if ip_address not in first_three_ips:
                 clients_connected = True
                 break
 
