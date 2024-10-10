@@ -22,12 +22,18 @@ def run_commands(hostname, vlan_id, username, password):
         vlan_status_command = f"show interface vlan {vlan_id} | include line protocol"
         vlan_status = connection.send_command(vlan_status_command)
 
+        # If the output does not contain 'line protocol' or is empty, assume VLAN doesn't exist
+        if not vlan_status or 'line protocol' not in vlan_status.lower():
+            print(f"VLAN {vlan_id} does not exist on {hostname}")
+            connection.disconnect()
+            return "No VLAN found", None
+
         # Check if the VLAN interface is up
         vlan_up = "line protocol is up" in vlan_status.lower()
 
-        # Get ARP table
+        # Get ARP table for the specific VLAN
         print(f"Retrieving ARP table for VLAN {vlan_id}...")
-        arp_command = "show ip arp"
+        arp_command = f"show ip arp vlan {vlan_id}"
         arp_output = connection.send_command(arp_command)
 
         # Disconnect from the device
@@ -77,6 +83,16 @@ def process_csv(input_file, output_file):
 
             # Run the commands once per device
             vlan_up, arp_output = run_commands(hostname, vlan_id, username, password)
+
+            if vlan_up == "No VLAN found":
+                print(f"VLAN {vlan_id} does not exist on {hostname}")
+                results.append({
+                    'Hostname': hostname,
+                    'VLAN ID': vlan_id,
+                    'VLAN Interface UP': vlan_up,
+                    'Clients Connected': "N/A"  # No clients since VLAN doesn't exist
+                })
+                continue
 
             if vlan_up is None:  # Indicates a failure in connecting
                 print(f"Skipping {hostname} due to connection issues.")
