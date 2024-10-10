@@ -2,9 +2,10 @@ import csv
 import ipaddress
 import getpass
 from netmiko import ConnectHandler, NetmikoTimeoutException, NetmikoAuthenticationException
+from collections import defaultdict
 
-# Function to connect to the switch and run commands
-def run_commands(hostname, vlan_id, username, password):
+# Function to connect to the switch and run commands for multiple VLANs
+def run_commands_for_vlans(hostname, vlans, username, password):
     device = {
         'device_type': 'cisco_ios',  # Adjust this based on your device
         'host': hostname,
@@ -16,34 +17,48 @@ def run_commands(hostname, vlan_id, username, password):
     try:
         print(f"Connecting to {hostname}...")
         connection = ConnectHandler(**device)
+        results = []
 
-        # Check VLAN status
-        print(f"Checking VLAN {vlan_id} status...")
-        vlan_status_command = f"show interface vlan {vlan_id} | include line protocol"
-        vlan_status = connection.send_command(vlan_status_command)
+        for vlan_id, subnet in vlans:
+            # Check VLAN status
+            print(f"Checking VLAN {vlan_id} status...")
+            vlan_status_command = f"show interface vlan {vlan_id} | include line protocol"
+            vlan_status = connection.send_command(vlan_status_command)
 
-        # If the output does not contain 'line protocol' or is empty, assume VLAN doesn't exist
-        if not vlan_status or 'line protocol' not in vlan_status.lower():
-            print(f"VLAN {vlan_id} does not exist on {hostname}")
-            connection.disconnect()
-            return "No VLAN found", None
+            # If the output does not contain 'line protocol' or is empty, assume VLAN doesn't exist
+            if not vlan_status or 'line protocol' not in vlan_status.lower():
+                print(f"VLAN {vlan_id} does not exist on {hostname}")
+                results.append({
+                    'VLAN ID': vlan_id,
+                    'VLAN Interface UP': 'No VLAN found',
+                    'Clients Connected': "N/A"
+                })
+                continue
 
-        # Check if the VLAN interface is up
-        vlan_up = "line protocol is up" in vlan_status.lower()
+            # Check if the VLAN interface is up
+            vlan_up = "line protocol is up" in vlan_status.lower()
 
-        # Get ARP table for the specific VLAN
-        print(f"Retrieving ARP table for VLAN {vlan_id}...")
-        arp_command = f"show ip arp vlan {vlan_id}"
-        arp_output = connection.send_command(arp_command)
+            # Get ARP table for the specific VLAN
+            print(f"Retrieving ARP table for VLAN {vlan_id}...")
+            arp_command = f"show ip arp vlan {vlan_id}"
+            arp_output = connection.send_command(arp_command)
 
-        # Disconnect from the device
+            # Check for clients connected on the VLAN
+            clients_connected = check_clients(arp_output, subnet)
+
+            results.append({
+                'VLAN ID': vlan_id,
+                'VLAN Interface UP': vlan_up,
+                'Clients Connected': clients_connected
+            })
+
+        # Disconnect from the device after processing all VLANs
         connection.disconnect()
-
-        return vlan_up, arp_output
+        return results
 
     except (NetmikoTimeoutException, NetmikoAuthenticationException) as e:
         print(f"Connection failed: {e}")
-        return None, None  # Indicate failure to connect
+        return None  # Indicate failure to connect
 
 # Function to check for clients in the ARP output while ignoring the first three IPs
 def check_clients(arp_output, subnet):
@@ -73,39 +88,32 @@ def process_csv(input_file, output_file):
     username = input("Enter your SSH username: ")
     password = getpass.getpass("Enter your SSH password (special characters are allowed): ")
 
+    # Group VLANs by hostname
+    hostname_to_vlans = defaultdict(list)
     with open(input_file, mode='r') as csv_file:
         csv_reader = csv.DictReader(csv_file)
-
         for row in csv_reader:
             hostname = row['Hostname']
             vlan_id = row['VLAN ID']
             subnet = row['Subnet']
+            hostname_to_vlans[hostname].append((vlan_id, subnet))
 
-            # Run the commands once per device
-            vlan_up, arp_output = run_commands(hostname, vlan_id, username, password)
+    # Process each hostname and its associated VLANs
+    for hostname, vlans in hostname_to_vlans.items():
+        # Run the commands once per device for all VLANs
+        vlan_results = run_commands_for_vlans(hostname, vlans, username, password)
 
-            if vlan_up == "No VLAN found":
-                print(f"VLAN {vlan_id} does not exist on {hostname}")
-                results.append({
-                    'Hostname': hostname,
-                    'VLAN ID': vlan_id,
-                    'VLAN Interface UP': vlan_up,
-                    'Clients Connected': "N/A"  # No clients since VLAN doesn't exist
-                })
-                continue
+        if vlan_results is None:  # Indicates a failure in connecting
+            print(f"Skipping {hostname} due to connection issues.")
+            continue
 
-            if vlan_up is None:  # Indicates a failure in connecting
-                print(f"Skipping {hostname} due to connection issues.")
-                continue
-
-            # Check for clients connected on the VLAN
-            clients_connected = check_clients(arp_output, subnet)
-
+        # Append results for each VLAN
+        for vlan_result in vlan_results:
             results.append({
                 'Hostname': hostname,
-                'VLAN ID': vlan_id,
-                'VLAN Interface UP': vlan_up,
-                'Clients Connected': clients_connected
+                'VLAN ID': vlan_result['VLAN ID'],
+                'VLAN Interface UP': vlan_result['VLAN Interface UP'],
+                'Clients Connected': vlan_result['Clients Connected']
             })
 
     write_to_csv(output_file, results)
