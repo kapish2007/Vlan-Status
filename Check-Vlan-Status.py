@@ -1,188 +1,174 @@
-import csv
+import paramiko
 import ipaddress
-import getpass
-from netmiko import ConnectHandler, NetmikoTimeoutException, NetmikoAuthenticationException
-from collections import defaultdict
+import csv
+import time
 
-# Function to check for clients in the ARP output while ignoring the first three IPs
-def check_clients(arp_output, subnet):
-    if arp_output is None:
-        return False  # If there's no output, assume no clients
-
-    # Split the ARP output into lines
-    arp_lines = arp_output.splitlines()
-
-    # Look for the header row (assuming the first non-empty line contains headers)
-    header_row = None
-    for line in arp_lines:
-        if line.strip():  # Skip empty lines
-            header_row = line.split()  # Split header into columns
-            break
-
-    if header_row is None:
-        print("No header found in ARP output.")
-        return False
-
-    # Find the index of the "Address" column in the header
+def ssh_connect(hostname, username, password):
+    """Connects to the device via SSH and returns the SSH client."""
+    client = paramiko.SSHClient()
+    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     try:
-        address_index = header_row.index("Address")
-    except ValueError:
-        print("No 'Address' column found in ARP output.")
-        return False
+        client.connect(hostname, username=username, password=password, look_for_keys=False)
+        return client
+    except Exception as e:
+        print(f"Failed to connect to {hostname}: {e}")
+        return None
 
-    # Get the first three IPs in the subnet
-    net = ipaddress.ip_network(subnet)
-    first_three_ips = {str(ip) for ip in list(net.hosts())[:3]}  # Create a set of the first 3 IPs
+def execute_command(client, command):
+    """Executes a command on the SSH client and returns the output."""
+    stdin, stdout, stderr = client.exec_command(command)
+    output = stdout.read().decode()
+    return output
 
-    # Flag to track if there are other clients
-    clients_connected = False
+def check_vlan_status_and_clients(command_outputs, vlan_id, subnet):
+    vlan_status = command_outputs.get('vlan_status')
 
-    # Process each line of the ARP output, starting after the header
-    for line in arp_lines[1:]:  # Skip the first line (header)
-        if line.strip() == "":  # Skip empty lines
-            continue
-
-        parts = line.split()
-        if len(parts) > address_index:  # Ensure the line has enough columns
-            ip_address = parts[address_index]  # Get the IP address from the Address column
-
-            # Skip rows where 'Address' is repeated (this means we're still reading the header)
-            if ip_address == "Address":
-                continue
-
-            # If the IP is not one of the first three, we have a client connected
-            if ip_address not in first_three_ips:
-                clients_connected = True
-                break
-
-    return clients_connected
-
-# Function to run commands for a list of VLANs once connected to a switch
-def run_commands_for_vlans(connection, vlans):
-    results = []
-
-    for vlan_id, subnet in vlans:
-        # Check VLAN status
-        print(f"Checking VLAN {vlan_id} status...")
-        vlan_status_command = f"show interface vlan {vlan_id} | include line protocol"
-        vlan_status = connection.send_command(vlan_status_command)
-
-        # If the output does not contain 'line protocol' or is empty, assume VLAN doesn't exist
-        if not vlan_status:
+    if not vlan_status:
         print(f"VLAN {vlan_id} not found.")
         results.append({
             'VLAN ID': vlan_id,
             'VLAN Interface UP': 'No VLAN found',
             'Clients Connected': "N/A"
         })
-        continue
-    
-        if 'line protocol is down' in vlan_status.lower():
+        return
+
+    if 'line protocol is down' in vlan_status.lower():
         print(f"VLAN {vlan_id} is DOWN.")
         results.append({
             'VLAN ID': vlan_id,
             'VLAN Interface UP': 'DOWN',
             'Clients Connected': "N/A"
         })
-        continue
-    
-        if 'line protocol is up' in vlan_status.lower():
+        return
+
+    if 'line protocol is up' in vlan_status.lower():
         print(f"VLAN {vlan_id} is UP.")
-        clients_connected = check_clients(command_outputs['arp_output'], subnet)
-        results.append({
-            'VLAN ID': vlan_id,
-            'VLAN Interface UP': 'UP',
-            'Clients Connected': clients_connected
-        })
-        continue
+        
+        arp_output = command_outputs.get('arp_output')
+        if arp_output is None:
+            print(f"No ARP output found for VLAN {vlan_id}.")
+            results.append({
+                'VLAN ID': vlan_id,
+                'VLAN Interface UP': 'UP',
+                'Clients Connected': "N/A"
+            })
+            return
 
-        # Check if the VLAN interface is up
-        vlan_up = "line protocol is up" in vlan_status.lower()
+        try:
+            clients_connected = check_clients(arp_output, subnet)
+            results.append({
+                'VLAN ID': vlan_id,
+                'VLAN Interface UP': 'UP',
+                'Clients Connected': "Yes" if clients_connected else "No"
+            })
+        except Exception as e:
+            print(f"Error checking clients for VLAN {vlan_id}: {e}")
+            results.append({
+                'VLAN ID': vlan_id,
+                'VLAN Interface UP': 'UP',
+                'Clients Connected': "Error"
+            })
 
-        # Get ARP table for the specific VLAN
-        print(f"Retrieving ARP table for VLAN {vlan_id}...")
-        arp_command = f"show ip arp vlan {vlan_id}"
-        arp_output = connection.send_command(arp_command)
+def check_clients(arp_output, subnet):
+    """Checks if there are clients connected to the specified VLAN."""
+    if arp_output is None:
+        return False
 
-        # Check for clients connected on the VLAN
-        clients_connected = check_clients(arp_output, subnet)
+    arp_lines = arp_output.splitlines()
+    header_row = None
+    for line in arp_lines:
+        if line.strip():
+            header_row = line.split()
+            break
 
-        results.append({
-            'VLAN ID': vlan_id,
-            'VLAN Interface UP': vlan_up,
-            'Clients Connected': clients_connected
-        })
+    if header_row is None:
+        print("No header found in ARP output.")
+        return False
 
-    return results
+    try:
+        address_index = header_row.index("Address")
+    except ValueError:
+        print("No 'Address' column found in ARP output.")
+        return False
 
-# Function to process the CSV and generate the report
-def process_csv(input_file, output_file):
+    net = ipaddress.ip_network(subnet)
+    first_three_ips = {str(ip) for ip in list(net.hosts())[:3]}
+    clients_connected = False
+
+    for line in arp_lines[1:]:
+        if line.strip() == "":
+            continue
+
+        parts = line.split()
+        if len(parts) > address_index:
+            ip_address = parts[address_index]
+
+            if ip_address == "Address":
+                continue
+
+            if ip_address not in first_three_ips:
+                clients_connected = True
+                break
+
+    return clients_connected
+
+def main():
+    input_file = 'input.csv'  # Input CSV file
+    output_file = 'output.csv'  # Output CSV file
+    global results
     results = []
 
-    username = input("Enter your SSH username: ")
-    password = getpass.getpass("Enter your SSH password (special characters are allowed): ")
+    # User credentials
+    username = input("Enter SSH username: ")
+    password = input("Enter SSH password: ")
 
-    # Group VLANs by hostname
-    hostname_to_vlans = defaultdict(list)
-    with open(input_file, mode='r') as csv_file:
-        csv_reader = csv.DictReader(csv_file)
-        for row in csv_reader:
+    with open(input_file, 'r') as csvfile:
+        reader = csv.DictReader(csvfile)
+        hosts = {}
+
+        for row in reader:
             hostname = row['Hostname']
             vlan_id = row['VLAN ID']
             subnet = row['Subnet']
-            hostname_to_vlans[hostname].append((vlan_id, subnet))
 
-    # Process each hostname and its associated VLANs
-    for hostname, vlans in hostname_to_vlans.items():
-        # Connect to the switch once per hostname
-        device = {
-            'device_type': 'cisco_ios',  # Adjust this based on your device type
-            'host': hostname,
-            'username': username,
-            'password': password,
-            'port': 22,  # Default SSH port
-        }
+            if hostname not in hosts:
+                hosts[hostname] = []
+            hosts[hostname].append((vlan_id, subnet))
 
-        try:
-            print(f"Connecting to {hostname}...")
-            connection = ConnectHandler(**device)
+    for hostname, vlan_data in hosts.items():
+        client = ssh_connect(hostname, username, password)
 
-            # Run the commands once per device for all VLANs
-            vlan_results = run_commands_for_vlans(connection, vlans)
+        if client:
+            time.sleep(1)  # Small delay for connection stability
+            for vlan_id, subnet in vlan_data:
+                # Commands to execute
+                vlan_command = f"show interface vlan {vlan_id} | include line protocol"
+                arp_command = f"show ip arp vlan {vlan_id}"
 
-            # Disconnect after all VLANs are processed
-            connection.disconnect()
+                # Execute commands
+                vlan_status = execute_command(client, vlan_command)
+                arp_output = execute_command(client, arp_command)
 
-            # Append results for each VLAN
-            for vlan_result in vlan_results:
-                results.append({
-                    'Hostname': hostname,
-                    'VLAN ID': vlan_result['VLAN ID'],
-                    'VLAN Interface UP': vlan_result['VLAN Interface UP'],
-                    'Clients Connected': vlan_result['Clients Connected']
-                })
+                command_outputs = {
+                    'vlan_status': vlan_status,
+                    'arp_output': arp_output
+                }
 
-        except (NetmikoTimeoutException, NetmikoAuthenticationException) as e:
-            print(f"Connection failed for {hostname}: {e}")
-            continue  # Skip this hostname if connection fails
+                check_vlan_status_and_clients(command_outputs, vlan_id, subnet)
 
-    write_to_csv(output_file, results)
+            client.close()
+        else:
+            print(f"Skipping hostname {hostname} due to connection issues.")
 
-# Function to write the results to a CSV file
-def write_to_csv(output_file, results):
-    fieldnames = ['Hostname', 'VLAN ID', 'VLAN Interface UP', 'Clients Connected']
+    # Write results to CSV
+    with open(output_file, 'w', newline='') as csvfile:
+        fieldnames = ['VLAN ID', 'VLAN Interface UP', 'Clients Connected']
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
 
-    with open(output_file, mode='w', newline='') as csv_file:
-        writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
         writer.writeheader()
+        writer.writerows(results)
 
-        for result in results:
-            writer.writerow(result)
-
-# Main function
-if __name__ == '__main__':
-    input_file = 'input.csv'   # Input CSV file path
-    output_file = 'output.csv'  # Output CSV file path
-
-    process_csv(input_file, output_file)
     print(f"Results written to {output_file}")
+
+if __name__ == "__main__":
+    main()
