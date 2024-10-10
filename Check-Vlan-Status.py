@@ -1,53 +1,71 @@
 import csv
-import paramiko
 import ipaddress
 import getpass
+from netmiko import ConnectHandler, NetmikoTimeoutException, NetmikoAuthenticationException
 
-# Function to SSH into the device and run multiple commands in a single session
-def ssh_run_commands(hostname, commands, username, password):
-    results = {}
-    
+# Function to connect to the switch and run commands
+def run_commands(hostname, vlan_id, username, password):
+    device = {
+        'device_type': 'cisco_ios',  # Adjust this based on your device
+        'host': hostname,
+        'username': username,
+        'password': password,
+        'port': 22,  # Default SSH port
+    }
+
     try:
-        ssh = paramiko.SSHClient()
-        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        ssh.connect(hostname, username=username, password=password, allow_agent=False, look_for_keys=False)
+        print(f"Connecting to {hostname}...")
+        connection = ConnectHandler(**device)
 
-        # Open a new SSH session and run each command
-        for command_label, command in commands.items():
-            stdin, stdout, stderr = ssh.exec_command(command)
-            output = stdout.read().decode()
-            results[command_label] = output
-            
-        ssh.close()
-    except paramiko.SSHException as e:
-        print(f"SSHException: {e}")
-        return None
-    except Exception as e:
-        print(f"Error: {e}")
-        return None
+        # Check VLAN status
+        print(f"Checking VLAN {vlan_id} status...")
+        vlan_status_command = f"show interface vlan {vlan_id} | include line protocol"
+        vlan_status = connection.send_command(vlan_status_command)
 
-    return results
+        # Check if the VLAN interface is up
+        vlan_up = "line protocol is up" in vlan_status.lower()
 
-# Function to check if the VLAN interface is UP based on the output
-def is_vlan_up(output):
-    return 'line protocol is up' in output.lower()
+        # Get ARP table
+        print(f"Retrieving ARP table for VLAN {vlan_id}...")
+        arp_command = "show ip arp"
+        arp_output = connection.send_command(arp_command)
 
-# Function to check if there are any ARP/MAC addresses (clients) on the VLAN while ignoring the first three IPs
-def check_arp_mac(output, subnet):
+        # Disconnect from the device
+        connection.disconnect()
+
+        return vlan_up, arp_output
+
+    except (NetmikoTimeoutException, NetmikoAuthenticationException) as e:
+        print(f"Connection failed: {e}")
+        return None, None  # Indicate failure to connect
+
+# Function to check for clients in the ARP output while ignoring the first three IPs
+def check_clients(arp_output, subnet):
+    if arp_output is None:
+        return False  # If there's no output, we can't have any clients
+
     net = ipaddress.ip_network(subnet)
     first_three_ips = {str(ip) for ip in list(net.hosts())[:3]}
 
-    arp_entries = [line.split()[1] for line in output.splitlines() if len(line.split()) > 1]
+    clients_connected = False
+    for line in arp_output.splitlines():
+        if line.strip() == "":
+            continue  # Skip empty lines
+        parts = line.split()
+        if len(parts) >= 3:  # Assuming the output has at least IP and MAC addresses
+            ip = parts[1]  # Adjust this index based on actual output format
+            if ip not in first_three_ips:
+                clients_connected = True
+                break
 
-    for ip in arp_entries:
-        if ip not in first_three_ips:
-            return True  # Clients are connected
+    return clients_connected
 
-    return False  # No clients other than the first 3 management IPs
-
-# Function to process CSV and generate the report
-def process_csv(input_file, output_file, username, password):
+# Function to process the CSV and generate the report
+def process_csv(input_file, output_file):
     results = []
+
+    username = input("Enter your SSH username: ")
+    password = getpass.getpass("Enter your SSH password (special characters are allowed): ")
 
     with open(input_file, mode='r') as csv_file:
         csv_reader = csv.DictReader(csv_file)
@@ -57,21 +75,15 @@ def process_csv(input_file, output_file, username, password):
             vlan_id = row['VLAN ID']
             subnet = row['Subnet']
 
-            # Define the commands to be run in a single SSH session
-            commands = {
-                'vlan_status': f"show interface vlan {vlan_id} | i up",
-                'arp_table': f"show ip arp vlan {vlan_id}"
-            }
-
             # Run the commands once per device
-            command_outputs = ssh_run_commands(hostname, commands, username, password)
+            vlan_up, arp_output = run_commands(hostname, vlan_id, username, password)
 
-            if not command_outputs:
+            if vlan_up is None:  # Indicates a failure in connecting
                 print(f"Skipping {hostname} due to connection issues.")
                 continue
 
-            vlan_up = is_vlan_up(command_outputs['vlan_status'])
-            clients_connected = check_arp_mac(command_outputs['arp_table'], subnet)
+            # Check for clients connected on the VLAN
+            clients_connected = check_clients(arp_output, subnet)
 
             results.append({
                 'Hostname': hostname,
@@ -96,10 +108,7 @@ def write_to_csv(output_file, results):
 # Main function
 if __name__ == '__main__':
     input_file = 'input.csv'   # Input CSV file path
-    output_file = 'output.csv' # Output CSV file path
+    output_file = 'output.csv'  # Output CSV file path
 
-    username = input("Enter your SSH username: ")
-    password = getpass.getpass("Enter your SSH password: ")
-
-    process_csv(input_file, output_file, username, password)
+    process_csv(input_file, output_file)
     print(f"Results written to {output_file}")
