@@ -68,14 +68,33 @@ def run_commands_for_vlans(connection, vlans):
         vlan_status = connection.send_command(vlan_status_command)
 
         # If the output does not contain 'line protocol' or is empty, assume VLAN doesn't exist
-        if not vlan_status or 'line protocol' not in vlan_status.lower():
-            print(f"VLAN {vlan_id} does not exist.")
-            results.append({
-                'VLAN ID': vlan_id,
-                'VLAN Interface UP': 'No VLAN found',
-                'Clients Connected': "N/A"
-            })
-            continue
+        if not vlan_status:
+        print(f"VLAN {vlan_id} not found.")
+        results.append({
+            'VLAN ID': vlan_id,
+            'VLAN Interface UP': 'No VLAN found',
+            'Clients Connected': "N/A"
+        })
+        continue
+    
+        if 'line protocol is down' in vlan_status.lower():
+        print(f"VLAN {vlan_id} is DOWN.")
+        results.append({
+            'VLAN ID': vlan_id,
+            'VLAN Interface UP': 'DOWN',
+            'Clients Connected': "N/A"
+        })
+        continue
+    
+        if 'line protocol is up' in vlan_status.lower():
+        print(f"VLAN {vlan_id} is UP.")
+        clients_connected = check_clients(command_outputs['arp_output'], subnet)
+        results.append({
+            'VLAN ID': vlan_id,
+            'VLAN Interface UP': 'UP',
+            'Clients Connected': clients_connected
+        })
+        continue
 
         # Check if the VLAN interface is up
         vlan_up = "line protocol is up" in vlan_status.lower()
