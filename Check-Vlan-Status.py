@@ -38,13 +38,17 @@ def check_clients(arp_output, subnet):
     clients_connected = False
 
     # Process each line of the ARP output, starting after the header
-    for line in arp_lines:
-        if line.strip() == "" or "Protocol" in line:  # Skip empty lines and the header
+    for line in arp_lines[1:]:  # Skip the first line (header)
+        if line.strip() == "":  # Skip empty lines
             continue
 
         parts = line.split()
         if len(parts) > address_index:  # Ensure the line has enough columns
             ip_address = parts[address_index]  # Get the IP address from the Address column
+
+            # Skip rows where 'Address' is repeated (this means we're still reading the header)
+            if ip_address == "Address":
+                continue
 
             # If the IP is not one of the first three, we have a client connected
             if ip_address not in first_three_ips:
