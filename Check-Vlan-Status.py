@@ -4,7 +4,6 @@ import getpass
 from netmiko import ConnectHandler, NetmikoTimeoutException, NetmikoAuthenticationException
 from collections import defaultdict
 
-# Function to check for VLAN access ports
 # Function to check for VLAN access ports using simplified command
 def check_access_ports(connection, vlan_id):
     # Command to filter only the active VLANs and their ports
@@ -17,14 +16,19 @@ def check_access_ports(connection, vlan_id):
     # Split the output into lines
     vlan_ports_lines = vlan_ports_output.splitlines()
 
-    # Iterate over the lines to extract the 4th column, which contains the ports
+    # Iterate over the lines to extract the ports column
     for line in vlan_ports_lines:
-        parts = line.split()  # Split the line into columns
-        if len(parts) >= 4:  # Ensure there are at least 4 columns
-            access_ports.append(parts[3])  # 4th column contains the ports
+        # Split the line into parts by whitespace
+        parts = line.split()
 
-    # Join all the ports found into a single string separated by commas
+        # Ensure the line has at least 4 columns (vlan_id, VLAN name, status, and ports)
+        if len(parts) >= 4:
+            # Capture everything from the 4th column onward (ports) as a single string
+            access_ports.append(' '.join(parts[3:]))
+
+    # Join all ports into a single string if there are multiple lines, else return the single line
     return ', '.join(access_ports) if access_ports else "No access ports found"
+
     
 def check_clients(arp_output, subnet):
     if arp_output is None:
