@@ -5,15 +5,20 @@ from netmiko import ConnectHandler, NetmikoTimeoutException, NetmikoAuthenticati
 from collections import defaultdict
 from openpyxl import Workbook
 
-# Function to generate VLAN cleanup configurations and save them in an Excel file
-def generate_vlan_cleanup_config(source_file, config_file):
-    # Initialize a workbook and a worksheet
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "VLAN Cleanup Config"
+# Function to generate VLAN cleanup configurations and save them in two Excel files
+def generate_vlan_cleanup_config(source_file):
+    # Initialize workbooks for Phase 1 and Phase 2
+    wb_phase1 = Workbook()
+    ws_phase1 = wb_phase1.active
+    ws_phase1.title = "Phase1 - VLAN Shutdown"
 
-    # Create a dictionary to hold configurations for each hostname
-    hostname_dict = defaultdict(list)
+    wb_phase2 = Workbook()
+    ws_phase2 = wb_phase2.active
+    ws_phase2.title = "Phase2 - VLAN Cleanup"
+
+    # Create dictionaries to hold configurations for each hostname for both phases
+    hostname_dict_phase1 = defaultdict(list)
+    hostname_dict_phase2 = defaultdict(list)
 
     with open(source_file, mode='r') as csv_file:
         csv_reader = csv.DictReader(csv_file)
@@ -22,43 +27,76 @@ def generate_vlan_cleanup_config(source_file, config_file):
             hostname = row['Hostname']
             access_ports = row['Access Ports']
             clients_connected = row['Clients Connected'] == 'True'  # Check if clients are connected
+            vlan_id = row['VLAN ID']
+            vlan_interface_up = row['VLAN Interface UP'] == 'True'  # Check if VLAN interface is UP
             
-            # Update condition to skip when access ports are invalid or clients are connected
-            if access_ports not in ["No access ports found", "N/A"] and not clients_connected:
-                access_ports_list = access_ports.split(', ')  # Split the ports into a list
+            # Phase 1: Shut down VLAN and access ports if VLAN is UP and no clients are connected
+            if vlan_interface_up and not clients_connected:
+                # Add commands to shut down access ports
+                if access_ports not in ["No access ports found", "N/A"]:
+                    access_ports_list = access_ports.split(', ')  # Split the ports into a list
+                    for port in access_ports_list:
+                        if not port.startswith("Po"):  # Skip port channels
+                            hostname_dict_phase1[hostname].append(f"interface {port.strip()}")
+                            hostname_dict_phase1[hostname].append("shutdown")
                 
-                # Prepare configuration commands for each access port, skipping ports that start with "Po"
+                # Add VLAN shutdown command
+                hostname_dict_phase1[hostname].append(f"interface vlan {vlan_id}")
+                hostname_dict_phase1[hostname].append("shutdown")
+                hostname_dict_phase1[hostname].append("!")  # Separator
+
+            # Phase 2: Cleanup commands for VLANs that are not in use
+            if access_ports not in ["No access ports found", "N/A"] and not clients_connected:
+                # Add default interface and no interface commands
+                access_ports_list = access_ports.split(', ')  # Split the ports into a list
                 for port in access_ports_list:
                     if not port.startswith("Po"):  # Skip port channels
-                        hostname_dict[hostname].append(f"Default interface {port.strip()}")
-                        hostname_dict[hostname].append(f"interface {port.strip()}")
-                        hostname_dict[hostname].append("shutdown")
-                        hostname_dict[hostname].append("description SHUTDOWN")
-                        hostname_dict[hostname].append("!")  # Separator
+                        hostname_dict_phase2[hostname].append(f"Default interface {port.strip()}")
+                        hostname_dict_phase2[hostname].append(f"interface {port.strip()}")
+                        hostname_dict_phase2[hostname].append("shutdown")
+                        hostname_dict_phase2[hostname].append("description SHUTDOWN")
+                        hostname_dict_phase2[hostname].append("!")
 
-    # Write headers (hostnames) to the first row
-    headers = list(hostname_dict.keys())
-    ws.append(headers)
+                # Add commands for removing VLAN
+                hostname_dict_phase2[hostname].append(f"no interface vlan {vlan_id}")
+                hostname_dict_phase2[hostname].append(f"no vlan {vlan_id}")
+                hostname_dict_phase2[hostname].append("!")  # Separator
 
-    # Check if hostname_dict is not empty before calculating max_commands
-    if hostname_dict:
-        # Find the maximum number of commands for any hostname
-        max_commands = max(len(commands) for commands in hostname_dict.values())
+    # Write Phase 1 configurations to the Excel file
+    headers_phase1 = list(hostname_dict_phase1.keys())
+    ws_phase1.append(headers_phase1)
 
-        # Write configurations for each hostname in columns
-        for i in range(max_commands):
+    if hostname_dict_phase1:
+        max_commands_phase1 = max(len(commands) for commands in hostname_dict_phase1.values())
+        for i in range(max_commands_phase1):
             row_data = []
-            for hostname in headers:
-                # Get the command at index i, or empty string if out of range
-                if i < len(hostname_dict[hostname]):
-                    row_data.append(hostname_dict[hostname][i])
+            for hostname in headers_phase1:
+                if i < len(hostname_dict_phase1[hostname]):
+                    row_data.append(hostname_dict_phase1[hostname][i])
                 else:
                     row_data.append("")  # Keep empty if no more commands
-            ws.append(row_data)  # Append the row for this index
+            ws_phase1.append(row_data)
 
-    # Save the Excel file
-    wb.save(config_file)
-    print(f"VLAN cleanup configuration saved to {config_file}")
+    # Write Phase 2 configurations to the second Excel file
+    headers_phase2 = list(hostname_dict_phase2.keys())
+    ws_phase2.append(headers_phase2)
+
+    if hostname_dict_phase2:
+        max_commands_phase2 = max(len(commands) for commands in hostname_dict_phase2.values())
+        for i in range(max_commands_phase2):
+            row_data = []
+            for hostname in headers_phase2:
+                if i < len(hostname_dict_phase2[hostname]):
+                    row_data.append(hostname_dict_phase2[hostname][i])
+                else:
+                    row_data.append("")  # Keep empty if no more commands
+            ws_phase2.append(row_data)
+
+    # Save both Excel files
+    wb_phase1.save("Phase1-Vlan-Shut.xlsx")
+    wb_phase2.save("Phase2-Vlan-Cleanup.xlsx")
+
+    print("VLAN cleanup configurations saved to Phase1-Vlan-Shut.xlsx and Phase2-Vlan-Cleanup.xlsx")
 
 # Function to check for VLAN access ports using simplified command
 def check_access_ports(connection, vlan_id):
