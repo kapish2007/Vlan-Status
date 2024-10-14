@@ -4,6 +4,30 @@ import getpass
 from netmiko import ConnectHandler, NetmikoTimeoutException, NetmikoAuthenticationException
 from collections import defaultdict
 
+# Function to check for VLAN access ports
+def check_access_ports(connection, vlan_id):
+    # Command to show VLAN ID details
+    vlan_ports_command = f"show vlan id {vlan_id}"
+    vlan_ports_output = connection.send_command(vlan_ports_command)
+    
+    # Extract the access ports from the output
+    access_ports = []
+    
+    # Split the output into lines and search for the Ports section
+    for line in vlan_ports_output.splitlines():
+        if "Ports" in line:
+            # Next line contains the list of ports
+            access_ports = line.split()[-1]  # Get the ports from the last section
+            break
+        elif line.strip().startswith(vlan_id):
+            # After the VLAN ID, ports will follow, check for ports starting from that line
+            parts = line.split()
+            if len(parts) >= 4:  # Ensure the line contains the required columns
+                access_ports = parts[3].split(',')  # Access ports are comma-separated
+            break
+    
+    return access_ports if access_ports else "No access ports found"
+    
 def check_clients(arp_output, subnet):
     if arp_output is None:
         return False  # If there's no output, assume no clients
@@ -77,18 +101,23 @@ def run_commands_for_vlans(connection, vlans):
     
             # Check for clients connected on the VLAN
             clients_connected = check_clients(arp_output, subnet)
-    
+            print(f"Retrieving access ports for VLAN {vlan_id}...")
+            access_ports = check_access_ports(connection, vlan_id)
+            
             results.append({
                 'VLAN ID': vlan_id,
                 'VLAN Interface UP': vlan_up,
                 'Clients Connected': clients_connected
+                'Access Ports': access_ports
             })
+            
         elif 'line protocol is down' in vlan_status.lower():
             print(f"VLAN {vlan_id} is down")
             results.append({
                 'VLAN ID': vlan_id,
                 'VLAN Interface UP': 'DOWN',
                 'Clients Connected': "N/A"
+                'Access Ports': "N/A"
             })
 
         else:
@@ -97,7 +126,9 @@ def run_commands_for_vlans(connection, vlans):
                 'VLAN ID': vlan_id,
                 'VLAN Interface UP': 'No VLAN found',
                 'Clients Connected': "N/A"
+                'Access Ports': "N/A"
             })
+            
     return results
 # Function to process the CSV and generate the report
 def process_csv(input_file, output_file):
@@ -144,7 +175,8 @@ def process_csv(input_file, output_file):
                     'Hostname': hostname,
                     'VLAN ID': vlan_result['VLAN ID'],
                     'VLAN Interface UP': vlan_result['VLAN Interface UP'],
-                    'Clients Connected': vlan_result['Clients Connected']
+                    'Clients Connected': vlan_result['Clients Connected'],
+                    'Access Ports': vlan_result['Access Ports']
                 })
 
         except (NetmikoTimeoutException, NetmikoAuthenticationException) as e:
@@ -155,7 +187,7 @@ def process_csv(input_file, output_file):
 
 # Function to write the results to a CSV file
 def write_to_csv(output_file, results):
-    fieldnames = ['Hostname', 'VLAN ID', 'VLAN Interface UP', 'Clients Connected']
+    fieldnames = ['Hostname', 'VLAN ID', 'VLAN Interface UP', 'Clients Connected', 'Access Ports']
 
     with open(output_file, mode='w', newline='') as csv_file:
         writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
