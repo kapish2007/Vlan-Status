@@ -39,6 +39,7 @@ def generate_vlan_cleanup_config(source_file):
                         if not port.startswith("Po"):  # Skip port channels
                             hostname_dict_phase1[hostname].append(f"interface {port.strip()}")
                             hostname_dict_phase1[hostname].append("shutdown")
+                            hostname_dict_phase1[hostname].append("!")
                 
                 # Add VLAN shutdown command
                 hostname_dict_phase1[hostname].append(f"interface vlan {vlan_id}")
