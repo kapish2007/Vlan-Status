@@ -55,7 +55,7 @@ def generate_vlan_cleanup_config(source_file):
                         hostname_dict_phase2[hostname].append(f"Default interface {port.strip()}")
                         hostname_dict_phase2[hostname].append(f"interface {port.strip()}")
                         hostname_dict_phase2[hostname].append("shutdown")
-                        hostname_dict_phase2[hostname].append("description SHUTDOWN")
+                        hostname_dict_phase2[hostname].append("description NXC")
                         hostname_dict_phase2[hostname].append("!")
 
                 # Add commands for removing VLAN
@@ -306,7 +306,7 @@ if __name__ == '__main__':
 
     if continue_cleanup == 'yes':
         # Generate VLAN cleanup configuration in Excel
-        generate_vlan_cleanup_config(output_file, 'vlan_cleanup_config.xlsx')
+        generate_vlan_cleanup_config(output_file)
     else:
         print("Exiting without generating configuration.")
 
