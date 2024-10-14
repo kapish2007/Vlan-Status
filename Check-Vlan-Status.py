@@ -64,36 +64,40 @@ def run_commands_for_vlans(connection, vlans):
     for vlan_id, subnet in vlans:
         # Check VLAN status
         print(f"Checking VLAN {vlan_id} status...")
-        vlan_status_command = f"show interface vlan {vlan_id} | include line protocol"
-        vlan_status = connection.send_command(vlan_status_command, expect_string=r"#")  # Add expect_string
+        vlan_status_command = f"show interface vlan {vlan_id}"
+        vlan_status = connection.send_command(vlan_status_command)  # Add expect_string
 
-        # If the output does not contain 'line protocol' or is empty, assume VLAN doesn't exist
-        if not vlan_status or 'line protocol' not in vlan_status.lower():
+        if 'line protocol is up' in vlan_status.lower():
+            vlan_up = 'line protocol is up" in vlan_status.lower()
+
+            # Get ARP table for the specific VLAN
+            print(f"Retrieving ARP table for VLAN {vlan_id}...")
+            arp_command = f"show ip arp vlan {vlan_id} | begin Address"
+            arp_output = connection.send_command(arp_command)  # Add expect_string
+    
+            # Check for clients connected on the VLAN
+            clients_connected = check_clients(arp_output, subnet)
+    
+            results.append({
+                'VLAN ID': vlan_id,
+                'VLAN Interface UP': vlan_up,
+                'Clients Connected': clients_connected
+            })
+        elif 'line protocol is down' in vlan_status.lower()
+            print(f"VLAN {vlan_id} is down")
+            results.append({
+                'VLAN ID': vlan_id,
+                'VLAN Interface UP': 'DOWN',
+                'Clients Connected': "N/A"
+            })
+
+        else:
             print(f"VLAN {vlan_id} does not exist.")
             results.append({
                 'VLAN ID': vlan_id,
                 'VLAN Interface UP': 'No VLAN found',
                 'Clients Connected': "N/A"
             })
-            continue
-
-        # Check if the VLAN interface is up
-        vlan_up = "line protocol is up" in vlan_status.lower()
-
-        # Get ARP table for the specific VLAN
-        print(f"Retrieving ARP table for VLAN {vlan_id}...")
-        arp_command = f"show ip arp vlan {vlan_id}"
-        arp_output = connection.send_command(arp_command, expect_string=r"#")  # Add expect_string
-
-        # Check for clients connected on the VLAN
-        clients_connected = check_clients(arp_output, subnet)
-
-        results.append({
-            'VLAN ID': vlan_id,
-            'VLAN Interface UP': vlan_up,
-            'Clients Connected': clients_connected
-        })
-
     return results
 # Function to process the CSV and generate the report
 def process_csv(input_file, output_file):
