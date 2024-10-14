@@ -6,19 +6,17 @@ from collections import defaultdict
 from openpyxl import Workbook
 
 # Function to generate VLAN cleanup configurations and save them in an Excel file
-# Function to generate VLAN cleanup configurations and save them in an Excel file
 def generate_vlan_cleanup_config(source_file, config_file):
     # Initialize a workbook and a worksheet
     wb = Workbook()
     ws = wb.active
     ws.title = "VLAN Cleanup Config"
 
-    # Write headers for the Excel file
-    ws.append(["Hostname", "Configuration"])
+    # Create a dictionary to hold configurations for each hostname
+    hostname_dict = defaultdict(list)
 
     with open(source_file, mode='r') as csv_file:
         csv_reader = csv.DictReader(csv_file)
-        hostname_dict = defaultdict(list)
 
         for row in csv_reader:
             hostname = row['Hostname']
@@ -27,12 +25,38 @@ def generate_vlan_cleanup_config(source_file, config_file):
                 access_ports_list = access_ports.split(', ')  # Split the ports into a list
                 # Prepare configuration commands for each access port
                 for port in access_ports_list:
-                    config_command = f"Default interface {port.strip()}\ninterface {port.strip()}\n  shutdown\n  description SHUTDOWN"
+                    config_command = [
+                        f"Default interface {port.strip()}",
+                        f"interface {port.strip()}",
+                        "shutdown",
+                        "description SHUTDOWN",
+                        "!"
+                    ]
                     hostname_dict[hostname].append(config_command)
 
-    # Write configurations for each hostname
-    for hostname, commands in hostname_dict.items():
-        ws.append([hostname, "\n".join(commands)])  # Join all commands with a newline
+    # Prepare rows for the Excel file
+    max_rows = max(len(commands) for commands in hostname_dict.values())
+    output_rows = []
+
+    # Create a list of headers (hostnames)
+    headers = list(hostname_dict.keys())
+    output_rows.append(headers)
+
+    # Fill in the configurations row by row
+    for row_index in range(max_rows):
+        row_data = []
+        for hostname in headers:
+            # Get the command list for the hostname and row index, or an empty string if none
+            commands = hostname_dict[hostname]
+            if row_index < len(commands):
+                row_data.append("\n".join(commands[row_index]))
+            else:
+                row_data.append("")  # Empty if no more commands
+        output_rows.append(row_data)
+
+    # Write the rows to the worksheet
+    for row in output_rows:
+        ws.append(row)
 
     # Save the Excel file
     wb.save(config_file)
