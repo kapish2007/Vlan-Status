@@ -9,6 +9,9 @@ from collections import defaultdict
 import ipaddress
 
 # Function to check for clients in the ARP output while ignoring the first three IPs
+import ipaddress
+
+# Function to check for clients in the ARP output while ignoring the first three IPs
 def check_clients(arp_output, subnet):
     if arp_output is None:
         return False  # If there's no output, assume no clients
@@ -60,6 +63,7 @@ def check_clients(arp_output, subnet):
                 break
 
     return clients_connected
+
 
 # Function to run commands for a list of VLANs once connected to a switch
 def run_commands_for_vlans(connection, vlans):
