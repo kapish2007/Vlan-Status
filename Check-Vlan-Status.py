@@ -21,16 +21,20 @@ def generate_vlan_cleanup_config(source_file, config_file):
         for row in csv_reader:
             hostname = row['Hostname']
             access_ports = row['Access Ports']
-            if access_ports != "No access ports found" or access_ports != "N/A":
+            clients_connected = row['Clients Connected']  # Read Clients Connected status
+            
+            # Update condition to skip when access ports are invalid or clients are connected
+            if access_ports not in ["No access ports found", "N/A"] and clients_connected is False:
                 access_ports_list = access_ports.split(', ')  # Split the ports into a list
-                # Prepare configuration commands for each access port
+                
+                # Prepare configuration commands for each access port, skipping ports that start with "Po"
                 for port in access_ports_list:
-                    # Each command as a separate entry
-                    hostname_dict[hostname].append(f"Default interface {port.strip()}")
-                    hostname_dict[hostname].append(f"interface {port.strip()}")
-                    hostname_dict[hostname].append("shutdown")
-                    hostname_dict[hostname].append("description SHUTDOWN")
-                    hostname_dict[hostname].append("!")  # Separator
+                    if not port.startswith("Po"):  # Skip port channels
+                        hostname_dict[hostname].append(f"Default interface {port.strip()}")
+                        hostname_dict[hostname].append(f"interface {port.strip()}")
+                        hostname_dict[hostname].append("shutdown")
+                        hostname_dict[hostname].append("description SHUTDOWN")
+                        hostname_dict[hostname].append("!")  # Separator
 
     # Write headers (hostnames) to the first row
     headers = list(hostname_dict.keys())
