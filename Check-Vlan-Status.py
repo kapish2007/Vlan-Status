@@ -48,7 +48,7 @@ def check_clients(arp_output, subnet):
             # Skip rows where 'Address' is repeated (this means we're still reading the header)
             if ip_address == "Address":
                 continue
-
+            print(ip_address)
             # If the IP is not one of the first three, we have a client connected
             if ip_address not in first_three_ips:
                 clients_connected = True
@@ -68,7 +68,7 @@ def run_commands_for_vlans(connection, vlans):
         vlan_status = connection.send_command(vlan_status_command)  # Add expect_string
 
         if 'line protocol is up' in vlan_status.lower():
-            vlan_up = 'line protocol is up" in vlan_status.lower()
+            vlan_up = "line protocol is up" in vlan_status.lower()
 
             # Get ARP table for the specific VLAN
             print(f"Retrieving ARP table for VLAN {vlan_id}...")
@@ -83,7 +83,7 @@ def run_commands_for_vlans(connection, vlans):
                 'VLAN Interface UP': vlan_up,
                 'Clients Connected': clients_connected
             })
-        elif 'line protocol is down' in vlan_status.lower()
+        elif 'line protocol is down' in vlan_status.lower():
             print(f"VLAN {vlan_id} is down")
             results.append({
                 'VLAN ID': vlan_id,
@@ -120,7 +120,7 @@ def process_csv(input_file, output_file):
     for hostname, vlans in hostname_to_vlans.items():
         # Connect to the switch once per hostname
         device = {
-            'device_type': 'cisco_nxos',  # Use this for Nexus devices
+            'device_type': 'cisco_ios',  # Use this for Nexus devices
             'host': hostname,
             'username': username,
             'password': password,
@@ -131,9 +131,6 @@ def process_csv(input_file, output_file):
         try:
             print(f"Connecting to {hostname}...")
             connection = ConnectHandler(**device)
-
-            # Disable pagination
-            connection.send_command("terminal length 0", expect_string=r"#")  # Adjust for Nexus
 
             # Run the commands once per device for all VLANs
             vlan_results = run_commands_for_vlans(connection, vlans)
