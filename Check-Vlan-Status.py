@@ -5,21 +5,57 @@ from netmiko import ConnectHandler, NetmikoTimeoutException, NetmikoAuthenticati
 from collections import defaultdict
 
 # Function to check for clients in the ARP output while ignoring the first three IPs
+# Function to check for clients in the ARP output while ignoring the first three IPs
+import ipaddress
+
+# Function to check for clients in the ARP output while ignoring the first three IPs
 def check_clients(arp_output, subnet):
     if arp_output is None:
-        return False  # If there's no output, we can't have any clients
+        return False  # If there's no output, assume no clients
 
+    # Split the ARP output into lines
+    arp_lines = arp_output.splitlines()
+
+    # Look for the header row (assuming the first non-empty line contains headers)
+    header_row = None
+    for line in arp_lines:
+        if line.strip():  # Skip empty lines
+            header_row = line.split()  # Split header into columns
+            break
+
+    if header_row is None:
+        print("No header found in ARP output.")
+        return False
+
+    # Find the index of the "Address" column in the header
+    try:
+        address_index = header_row.index("Address")
+    except ValueError:
+        print("No 'Address' column found in ARP output.")
+        return False
+
+    # Get the first three IPs in the subnet
     net = ipaddress.ip_network(subnet)
-    first_three_ips = {str(ip) for ip in list(net.hosts())[:3]}
+    first_three_ips = {str(ip) for ip in list(net.hosts())[:3]}  # Create a set of the first 3 IPs
 
+    # Flag to track if there are other clients
     clients_connected = False
-    for line in arp_output.splitlines():
-        if line.strip() == "":
-            continue  # Skip empty lines
+
+    # Process each line of the ARP output, starting after the header
+    for line in arp_lines[1:]:  # Skip the first line (header)
+        if line.strip() == "":  # Skip empty lines
+            continue
+
         parts = line.split()
-        if len(parts) >= 3:  # Assuming the output has at least IP and MAC addresses
-            ip = parts[1]  # Adjust this index based on actual output format
-            if ip not in first_three_ips:
+        if len(parts) > address_index:  # Ensure the line has enough columns
+            ip_address = parts[address_index]  # Get the IP address from the Address column
+
+            # Skip rows where 'Address' is repeated (this means we're still reading the header)
+            if ip_address == "Address":
+                continue
+
+            # If the IP is not one of the first three, we have a client connected
+            if ip_address not in first_three_ips:
                 clients_connected = True
                 break
 
