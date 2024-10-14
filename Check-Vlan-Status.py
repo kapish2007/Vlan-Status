@@ -4,14 +4,6 @@ import getpass
 from netmiko import ConnectHandler, NetmikoTimeoutException, NetmikoAuthenticationException
 from collections import defaultdict
 
-# Function to check for clients in the ARP output while ignoring the first three IPs
-# Function to check for clients in the ARP output while ignoring the first three IPs
-import ipaddress
-
-# Function to check for clients in the ARP output while ignoring the first three IPs
-import ipaddress
-
-# Function to check for clients in the ARP output while ignoring the first three IPs
 def check_clients(arp_output, subnet):
     if arp_output is None:
         return False  # If there's no output, assume no clients
