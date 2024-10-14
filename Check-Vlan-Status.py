@@ -3,6 +3,40 @@ import ipaddress
 import getpass
 from netmiko import ConnectHandler, NetmikoTimeoutException, NetmikoAuthenticationException
 from collections import defaultdict
+from openpyxl import Workbook
+
+# Function to generate VLAN cleanup configurations and save them in an Excel file
+# Function to generate VLAN cleanup configurations and save them in an Excel file
+def generate_vlan_cleanup_config(source_file, config_file):
+    # Initialize a workbook and a worksheet
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "VLAN Cleanup Config"
+
+    # Write headers for the Excel file
+    ws.append(["Hostname", "Configuration"])
+
+    with open(source_file, mode='r') as csv_file:
+        csv_reader = csv.DictReader(csv_file)
+        hostname_dict = defaultdict(list)
+
+        for row in csv_reader:
+            hostname = row['Hostname']
+            access_ports = row['Access Ports']
+            if access_ports != "No access ports found":
+                access_ports_list = access_ports.split(', ')  # Split the ports into a list
+                # Prepare configuration commands for each access port
+                for port in access_ports_list:
+                    config_command = f"Default interface {port.strip()}\ninterface {port.strip()}\n  shutdown\n  description SHUTDOWN"
+                    hostname_dict[hostname].append(config_command)
+
+    # Write configurations for each hostname
+    for hostname, commands in hostname_dict.items():
+        ws.append([hostname, "\n".join(commands)])  # Join all commands with a newline
+
+    # Save the Excel file
+    wb.save(config_file)
+    print(f"VLAN cleanup configuration saved to {config_file}")
 
 # Function to check for VLAN access ports using simplified command
 def check_access_ports(connection, vlan_id):
@@ -205,3 +239,13 @@ if __name__ == '__main__':
 
     process_csv(input_file, output_file)
     print(f"Results written to {output_file}")
+
+    # Ask user if they want to continue to generate configuration
+    continue_cleanup = input("Do you want to continue to generate configuration for VLAN cleanup? (yes/no): ").strip().lower()
+
+    if continue_cleanup == 'yes':
+        # Generate VLAN cleanup configuration in Excel
+        generate_vlan_cleanup_config(output_file, 'vlan_cleanup_config.xlsx')
+    else:
+        print("Exiting without generating configuration.")
+
