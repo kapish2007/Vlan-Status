@@ -64,8 +64,8 @@ def run_commands_for_vlans(connection, vlans):
     for vlan_id, subnet in vlans:
         # Check VLAN status
         print(f"Checking VLAN {vlan_id} status...")
-        vlan_status_command = f"show interface vlan {vlan_id} | include line protocol"
-        vlan_status = connection.send_command(vlan_status_command, expect_string=r"#")  # Add expect_string
+        vlan_status_command = f"show interface vlan {vlan_id}"
+        vlan_status = connection.send_command(vlan_status_command)
 
         # If the output does not contain 'line protocol' or is empty, assume VLAN doesn't exist
         if not vlan_status or 'line protocol' not in vlan_status.lower():
