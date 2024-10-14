@@ -21,42 +21,34 @@ def generate_vlan_cleanup_config(source_file, config_file):
         for row in csv_reader:
             hostname = row['Hostname']
             access_ports = row['Access Ports']
-            if access_ports != "No access ports found":
+            if access_ports != "No access ports found" or access_ports != "N/A":
                 access_ports_list = access_ports.split(', ')  # Split the ports into a list
                 # Prepare configuration commands for each access port
                 for port in access_ports_list:
-                    config_command = [
-                        f"Default interface {port.strip()}",
-                        f"interface {port.strip()}",
-                        "shutdown",
-                        "description SHUTDOWN",
-                        "!"
-                    ]
-                    hostname_dict[hostname].append(config_command)
+                    # Each command as a separate entry
+                    hostname_dict[hostname].append(f"Default interface {port.strip()}")
+                    hostname_dict[hostname].append(f"interface {port.strip()}")
+                    hostname_dict[hostname].append("shutdown")
+                    hostname_dict[hostname].append("description SHUTDOWN")
+                    hostname_dict[hostname].append("!")  # Separator
 
-    # Prepare rows for the Excel file
-    max_rows = max(len(commands) for commands in hostname_dict.values())
-    output_rows = []
-
-    # Create a list of headers (hostnames)
+    # Write headers (hostnames) to the first row
     headers = list(hostname_dict.keys())
-    output_rows.append(headers)
+    ws.append(headers)
 
-    # Fill in the configurations row by row
-    for row_index in range(max_rows):
+    # Find the maximum number of commands for any hostname
+    max_commands = max(len(commands) for commands in hostname_dict.values())
+
+    # Write configurations for each hostname in columns
+    for i in range(max_commands):
         row_data = []
         for hostname in headers:
-            # Get the command list for the hostname and row index, or an empty string if none
-            commands = hostname_dict[hostname]
-            if row_index < len(commands):
-                row_data.append("\n".join(commands[row_index]))
+            # Get the command at index i, or empty string if out of range
+            if i < len(hostname_dict[hostname]):
+                row_data.append(hostname_dict[hostname][i])
             else:
-                row_data.append("")  # Empty if no more commands
-        output_rows.append(row_data)
-
-    # Write the rows to the worksheet
-    for row in output_rows:
-        ws.append(row)
+                row_data.append("")  # Keep empty if no more commands
+        ws.append(row_data)  # Append the row for this index
 
     # Save the Excel file
     wb.save(config_file)
