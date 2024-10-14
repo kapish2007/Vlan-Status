@@ -107,7 +107,7 @@ def run_commands_for_vlans(connection, vlans):
             results.append({
                 'VLAN ID': vlan_id,
                 'VLAN Interface UP': vlan_up,
-                'Clients Connected': clients_connected
+                'Clients Connected': clients_connected,
                 'Access Ports': access_ports
             })
             
@@ -116,7 +116,7 @@ def run_commands_for_vlans(connection, vlans):
             results.append({
                 'VLAN ID': vlan_id,
                 'VLAN Interface UP': 'DOWN',
-                'Clients Connected': "N/A"
+                'Clients Connected': "N/A",
                 'Access Ports': "N/A"
             })
 
@@ -125,7 +125,7 @@ def run_commands_for_vlans(connection, vlans):
             results.append({
                 'VLAN ID': vlan_id,
                 'VLAN Interface UP': 'No VLAN found',
-                'Clients Connected': "N/A"
+                'Clients Connected': "N/A",
                 'Access Ports': "N/A"
             })
             
