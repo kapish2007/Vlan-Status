@@ -5,37 +5,25 @@ from netmiko import ConnectHandler, NetmikoTimeoutException, NetmikoAuthenticati
 from collections import defaultdict
 
 # Function to check for VLAN access ports
+# Function to check for VLAN access ports using simplified command
 def check_access_ports(connection, vlan_id):
-    # Command to show VLAN ID details
-    vlan_ports_command = f"show vlan id {vlan_id}"
+    # Command to filter only the active VLANs and their ports
+    vlan_ports_command = f"show vlan id {vlan_id} | i active"
     vlan_ports_output = connection.send_command(vlan_ports_command)
-    
-    # Initialize an empty list to store access ports
+
+    # Initialize a variable to store the ports
     access_ports = []
 
     # Split the output into lines
     vlan_ports_lines = vlan_ports_output.splitlines()
 
-    # Flag to identify when the Ports section starts
-    ports_found = False
-
-    # Iterate over the output lines
+    # Iterate over the lines to extract the 4th column, which contains the ports
     for line in vlan_ports_lines:
-        # Look for the "Ports" header
-        if "Ports" in line:
-            ports_found = True
-            continue  # Skip this line, as it contains only headers
+        parts = line.split()  # Split the line into columns
+        if len(parts) >= 4:  # Ensure there are at least 4 columns
+            access_ports.append(parts[3])  # 4th column contains the ports
 
-        # If we are in the "Ports" section, start collecting ports
-        if ports_found:
-            # The ports are comma-separated on this line
-            ports = line.split()
-            if ports:
-                # Collect the ports into the access_ports list
-                access_ports.extend(ports[2].split(','))  # Extract the ports after the VLAN name and Status
-            break  # Exit the loop after the ports are collected
-
-    # Join the list into a comma-separated string for output
+    # Join all the ports found into a single string separated by commas
     return ', '.join(access_ports) if access_ports else "No access ports found"
     
 def check_clients(arp_output, subnet):
@@ -113,7 +101,7 @@ def run_commands_for_vlans(connection, vlans):
             clients_connected = check_clients(arp_output, subnet)
             print(f"Retrieving access ports for VLAN {vlan_id}...")
             access_ports = check_access_ports(connection, vlan_id)
-            
+            print(access_ports)
             results.append({
                 'VLAN ID': vlan_id,
                 'VLAN Interface UP': vlan_up,
