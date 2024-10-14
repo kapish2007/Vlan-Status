@@ -10,23 +10,33 @@ def check_access_ports(connection, vlan_id):
     vlan_ports_command = f"show vlan id {vlan_id}"
     vlan_ports_output = connection.send_command(vlan_ports_command)
     
-    # Extract the access ports from the output
+    # Initialize an empty list to store access ports
     access_ports = []
-    
-    # Split the output into lines and search for the Ports section
-    for line in vlan_ports_output.splitlines():
+
+    # Split the output into lines
+    vlan_ports_lines = vlan_ports_output.splitlines()
+
+    # Flag to identify when the Ports section starts
+    ports_found = False
+
+    # Iterate over the output lines
+    for line in vlan_ports_lines:
+        # Look for the "Ports" header
         if "Ports" in line:
-            # Next line contains the list of ports
-            access_ports = line.split()[-1]  # Get the ports from the last section
-            break
-        elif line.strip().startswith(vlan_id):
-            # After the VLAN ID, ports will follow, check for ports starting from that line
-            parts = line.split()
-            if len(parts) >= 4:  # Ensure the line contains the required columns
-                access_ports = parts[3].split(',')  # Access ports are comma-separated
-            break
-    
-    return access_ports if access_ports else "No access ports found"
+            ports_found = True
+            continue  # Skip this line, as it contains only headers
+
+        # If we are in the "Ports" section, start collecting ports
+        if ports_found:
+            # The ports are comma-separated on this line
+            ports = line.split()
+            if ports:
+                # Collect the ports into the access_ports list
+                access_ports.extend(ports[2].split(','))  # Extract the ports after the VLAN name and Status
+            break  # Exit the loop after the ports are collected
+
+    # Join the list into a comma-separated string for output
+    return ', '.join(access_ports) if access_ports else "No access ports found"
     
 def check_clients(arp_output, subnet):
     if arp_output is None:
