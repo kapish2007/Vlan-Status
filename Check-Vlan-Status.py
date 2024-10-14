@@ -21,10 +21,10 @@ def generate_vlan_cleanup_config(source_file, config_file):
         for row in csv_reader:
             hostname = row['Hostname']
             access_ports = row['Access Ports']
-            clients_connected = row['Clients Connected']  # Read Clients Connected status
+            clients_connected = row['Clients Connected'] == 'True'  # Check if clients are connected
             
             # Update condition to skip when access ports are invalid or clients are connected
-            if access_ports not in ["No access ports found", "N/A"] and clients_connected is False:
+            if access_ports not in ["No access ports found", "N/A"] and not clients_connected:
                 access_ports_list = access_ports.split(', ')  # Split the ports into a list
                 
                 # Prepare configuration commands for each access port, skipping ports that start with "Po"
@@ -40,19 +40,21 @@ def generate_vlan_cleanup_config(source_file, config_file):
     headers = list(hostname_dict.keys())
     ws.append(headers)
 
-    # Find the maximum number of commands for any hostname
-    max_commands = max(len(commands) for commands in hostname_dict.values())
+    # Check if hostname_dict is not empty before calculating max_commands
+    if hostname_dict:
+        # Find the maximum number of commands for any hostname
+        max_commands = max(len(commands) for commands in hostname_dict.values())
 
-    # Write configurations for each hostname in columns
-    for i in range(max_commands):
-        row_data = []
-        for hostname in headers:
-            # Get the command at index i, or empty string if out of range
-            if i < len(hostname_dict[hostname]):
-                row_data.append(hostname_dict[hostname][i])
-            else:
-                row_data.append("")  # Keep empty if no more commands
-        ws.append(row_data)  # Append the row for this index
+        # Write configurations for each hostname in columns
+        for i in range(max_commands):
+            row_data = []
+            for hostname in headers:
+                # Get the command at index i, or empty string if out of range
+                if i < len(hostname_dict[hostname]):
+                    row_data.append(hostname_dict[hostname][i])
+                else:
+                    row_data.append("")  # Keep empty if no more commands
+            ws.append(row_data)  # Append the row for this index
 
     # Save the Excel file
     wb.save(config_file)
